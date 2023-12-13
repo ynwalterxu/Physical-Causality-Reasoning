@@ -2,13 +2,14 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from data_utils import normalize_imagenet
 from transformers import ResNetConfig, ResNetModel, BertTokenizer, BertModel
 import math
 
 
 
 class NN(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, ball, p_drop) -> None:
         super().__init__()
         self.resnet_backbone = ResNetModel.from_pretrained("microsoft/resnet-50")
         for param in self.resnet_backbone.parameters()  :
@@ -16,7 +17,8 @@ class NN(nn.Module):
         for param in list(self.resnet_backbone.parameters())[-1:]:
             param.requires_grad = True
 
-        self.ball = 1.5
+        self.ball = ball
+        self.p_drop = p_drop
 
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         self.bert_backbone = BertModel.from_pretrained("bert-base-uncased")
@@ -33,13 +35,13 @@ class NN(nn.Module):
 
         self.resnet_mlp = nn.Sequential(
                                         nn.Linear(2048, 1024),
-                                        nn.Dropout(p=0.1),
+                                        nn.Dropout(p=self.p_drop),
                                         nn.ReLU(),
                                         nn.Linear(1024, 1024),
-                                        nn.Dropout(p=0.1),
+                                        nn.Dropout(p=self.p_drop),
                                         nn.ReLU(),
                                         nn.Linear(1024, 1024),
-                                        nn.Dropout(p=0.1),
+                                        nn.Dropout(p=self.p_drop),
                                         nn.ReLU(),
                                         nn.Linear(1024, 768)
                                         )
@@ -48,6 +50,8 @@ class NN(nn.Module):
     def forward(self, encoded_verb_noun, image:torch.tensor, device="cuda") -> torch.tensor:
         #encoded_verb_noun = self.tokenizer(verb_noun, return_tensors='pt').to(device)
         B = image.shape[0]
+
+        image = normalize_imagenet(image)
 
         x = self.bert_backbone(**encoded_verb_noun)
         x = x.pooler_output # [1, 768]
@@ -74,7 +78,7 @@ class NN(nn.Module):
         #loss = torch.sum( (1-label) * 0.5 * distance + label * 0.5 * torch.max(zeros, self.ball - distance) )
 
         # cos similarity
-        loss = torch.sum( label * 0.5 * torch.max(zeros, distance - 0.5) + (1-label) * 0.5 * torch.max(zeros, self.ball - distance) )
+        loss = torch.sum( label * distance + (1-label) * torch.max(zeros, self.ball - distance) )
         return loss
 
     def dist(self, text_feats, image_feats):
@@ -89,16 +93,6 @@ class NN(nn.Module):
 
         return distance
 
-def normalize_imagenet(x):
-    """ Normalize input images according to ImageNet standards.
-        Args:
-            x (tensor): input images
-        """
-    x = x.clone()
-    x[:, 0] = ((x[:, 0] / 255.0) - 0.485) / 0.229
-    x[:, 1] = ((x[:, 1] / 255.0) - 0.456) / 0.224
-    x[:, 2] = ((x[:, 2] / 255.0) - 0.406) / 0.225
-    return x
 
 
 
