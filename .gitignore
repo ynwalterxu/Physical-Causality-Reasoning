@@ -1,0 +1,7 @@
+.vscode/
+checkpoints/
+__pycache__/
+
+*.pt
+*.pth
+*.pdf
